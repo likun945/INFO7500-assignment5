@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.13;
+import "forge-std/console.sol";
 
 contract VickreyAuction {
     /// @param seller The address selling the auctioned asset.
@@ -216,5 +217,16 @@ contract VickreyAuction {
         auction = auctions[itemId];
         require(auction.startTime > 0, "Auction does not exist for this item");
         return auction;
+    }
+
+    function getBid(
+        uint256 itemId,
+        uint64 index,
+        address bidder
+    ) public view returns (bytes20, uint96) {
+        return (
+            bids[itemId][index][bidder].commitment,
+            bids[itemId][index][bidder].collateral
+        );
     }
 }
