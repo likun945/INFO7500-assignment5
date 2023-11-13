@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 import "forge-std/console.sol";
 
 contract VickreyAuction {
+    event AssetTransferred(uint256 indexed assetId, address indexed newOwner);
     /// @param seller The address selling the auctioned asset.
     /// @param startTime The unix timestamp at which bidding can start.
     /// @param endOfBiddingPeriod The unix timestamp after which bids can no
@@ -75,7 +76,6 @@ contract VickreyAuction {
         require(bidPeriod > 0, "Bid period must be greater than zero");
         require(revealPeriod > 0, "Reveal period must be greater than zero");
         require(reservePrice > 0, "Reserve price must be greater than zero");
-
         auctions[itemId] = Auction({
             seller: msg.sender,
             startTime: startTime,
@@ -141,9 +141,10 @@ contract VickreyAuction {
             bid.commitment == bytes20(keccak256(abi.encode(nonce, bidValue))),
             "Revealed bid does not match the commitment"
         );
-
-        bid.collateral = 0;
-        bid.commitment = bytes20(0);
+        require(
+            bid.collateral >= bidValue,
+            "Collateral must be at least equal to the bid value"
+        );
         if (bidValue > auction.highestBid) {
             auction.secondHighestBid = auction.highestBid;
             auction.highestBid = bidValue;
@@ -168,20 +169,11 @@ contract VickreyAuction {
         );
         address winningBidder = auction.highestBidder;
         uint96 winningBidAmount = auction.highestBid;
-        if (winningBidAmount > 0) {
+        if (winningBidAmount > auction.reservePrice) {
             uint96 secondHighestBid = auction.secondHighestBid;
-            if (winningBidAmount >= auction.reservePrice) {
-                uint96 paymentAmount = secondHighestBid;
-                payable(auction.seller).transfer(paymentAmount);
-                Bid storage winningBid = bids[itemId][auction.index][
-                    winningBidder
-                ];
-                if (winningBid.collateral > 0) {
-                    payable(winningBidder).transfer(winningBid.collateral);
-                }
-            } else {
-                payable(winningBidder).transfer(winningBidAmount);
-            }
+            uint96 paymentAmount = secondHighestBid;
+            payable(auction.seller).transfer(paymentAmount);
+            emit AssetTransferred(itemId, winningBidder);
         }
         delete auctions[itemId];
     }
@@ -207,6 +199,7 @@ contract VickreyAuction {
         require(bid.collateral > 0, "Collateral is already withdrawn");
         payable(bidder).transfer(bid.collateral);
         bid.collateral = 0;
+        bid.commitment = bytes20(0);
     }
 
     /// @notice Gets the parameters and state of an auction in storage.
