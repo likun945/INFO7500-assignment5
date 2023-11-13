@@ -168,14 +168,19 @@ contract VickreyAuction {
             "Bid reveal phase is not over yet"
         );
         address winningBidder = auction.highestBidder;
-        uint96 winningBidAmount = auction.highestBid;
-        if (winningBidAmount > auction.reservePrice) {
+        if (winningBidder != address(0)) {
             uint96 secondHighestBid = auction.secondHighestBid;
             uint96 paymentAmount = secondHighestBid;
+            Bid storage winnerBid = bids[itemId][auction.index][winningBidder];
             payable(auction.seller).transfer(paymentAmount);
             emit AssetTransferred(itemId, winningBidder);
+            payable(winningBidder).transfer(
+                winnerBid.collateral - paymentAmount
+            );
+            winnerBid.collateral = 0;
+        } else {
+            emit AssetTransferred(itemId, auction.seller);
         }
-        delete auctions[itemId];
     }
 
     /// @notice Withdraws collateral. Bidder must have opened their bid commitment
@@ -199,7 +204,6 @@ contract VickreyAuction {
         require(bid.collateral > 0, "Collateral is already withdrawn");
         payable(bidder).transfer(bid.collateral);
         bid.collateral = 0;
-        bid.commitment = bytes20(0);
     }
 
     /// @notice Gets the parameters and state of an auction in storage.

@@ -8,17 +8,16 @@ import "forge-std/console.sol";
 contract VickreyAuctionTest is Test {
     VickreyAuction public auction;
     address constant seller = address(0);
-    address constant bidder0 = address(1);
-    address constant bidder1 = address(2);
+    address constant bidder0 = address(0x742d35Cc6634C0532925a3b844Bc454e4438f44e);
+    address constant bidder1 = address(0x4E943da844cbe1503F13499ba8d5FD70f1eEF272);
+    address constant contract_addr = 0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496;
     bytes32 nonce0 =
         0x1234567890123456789012345678901234567890123456789012345678901234;
     bytes32 nonce1 =
         0x1234567890123456789012345678901234567890123456789012345678901235;
     uint96 bidValue0 = 500;
     uint96 bidValue1 = 300;
-    uint96 bidValueLow = 50;
-    uint96 bidValueHigh = 1000;
-
+    uint96 reservePrice = 100;
     function setUp() public {
         auction = new VickreyAuction();
         vm.deal(bidder0, 1000);
@@ -30,7 +29,6 @@ contract VickreyAuctionTest is Test {
         uint32 startTime = uint32(block.timestamp + 60);
         uint32 bidPeriod = 300;
         uint32 revealPeriod = 120;
-        uint96 reservePrice = 100;
         vm.prank(seller);
         auction.createAuction(
             itemId,
@@ -57,7 +55,6 @@ contract VickreyAuctionTest is Test {
         uint32 startTime = uint32(block.timestamp + 60);
         uint32 bidPeriod = 300;
         uint32 revealPeriod = 120;
-        uint96 reservePrice = 100;
         auction.createAuction(
             itemId,
             startTime,
@@ -87,7 +84,6 @@ contract VickreyAuctionTest is Test {
         uint32 startTime = uint32(block.timestamp + 60);
         uint32 bidPeriod = 300;
         uint32 revealPeriod = 120;
-        uint96 reservePrice = 100;
         auction.createAuction(
             itemId,
             startTime,
@@ -110,7 +106,6 @@ contract VickreyAuctionTest is Test {
         uint32 startTime = uint32(block.timestamp - 1);
         uint32 bidPeriod = 300;
         uint32 revealPeriod = 120;
-        uint96 reservePrice = 100;
         vm.expectRevert("Start time must be in the future");
         auction.createAuction(
             itemId,
@@ -126,7 +121,6 @@ contract VickreyAuctionTest is Test {
         uint32 startTime = uint32(block.timestamp + 60);
         uint32 bidPeriod = 0;
         uint32 revealPeriod = 120;
-        uint96 reservePrice = 100;
         vm.expectRevert("Bid period must be greater than zero");
         auction.createAuction(
             itemId,
@@ -142,7 +136,6 @@ contract VickreyAuctionTest is Test {
         uint32 startTime = uint32(block.timestamp + 60);
         uint32 bidPeriod = 300;
         uint32 revealPeriod = 0;
-        uint96 reservePrice = 100;
         vm.expectRevert("Reveal period must be greater than zero");
         auction.createAuction(
             itemId,
@@ -158,7 +151,7 @@ contract VickreyAuctionTest is Test {
         uint32 startTime = uint32(block.timestamp + 60);
         uint32 bidPeriod = 300;
         uint32 revealPeriod = 120;
-        uint96 reservePrice = 0;
+        reservePrice = 0;
         vm.expectRevert("Reserve price must be greater than zero");
         auction.createAuction(
             itemId,
@@ -391,7 +384,6 @@ contract VickreyAuctionTest is Test {
         setUp_createAuction();
         setUp_commitBid(bidder0, nonce0, bidValue0);
         setUp_commitBid(bidder1, nonce1, bidValue1);
-
         vm.warp(361);
         vm.startPrank(bidder0);
         auction.revealBid(1, bidValue0, nonce0);
@@ -402,18 +394,152 @@ contract VickreyAuctionTest is Test {
         vm.warp(481);
         vm.expectEmit(true, true, true, true);
         emit AssetTransferred(1, bidder0);
-
         auction.endAuction(1);
 
         uint256 winnerBalance = address(bidder0).balance;
         uint256 notWinnerBalance = address(bidder1).balance;
         uint256 sellerBalance = address(seller).balance;
-        assertEq(winnerBalance, 1000 - bidValue0);
+        assertEq(winnerBalance, 1000 - bidValue1);
         assertEq(notWinnerBalance, 1000 - bidValue1);
         assertEq(sellerBalance, bidValue1);
-        vm.expectRevert("Auction does not exist for this item");
-        auction.getAuction(1);
     }
 
+    function test_endAuction_noSecondHighestBid() public {
+        setUp_createAuction();
+        setUp_commitBid(bidder0, nonce0, bidValue0);
+
+        vm.warp(361);
+        vm.startPrank(bidder0);
+        auction.revealBid(1, bidValue0, nonce0);
+
+        vm.warp(481);
+        auction.endAuction(1);
+        uint256 winnerBalance = address(bidder0).balance;
+        uint256 notWinnerBalance = address(bidder1).balance;
+        uint256 sellerBalance = address(seller).balance;
+
+        assertEq(winnerBalance, 1000 - reservePrice);
+        assertEq(notWinnerBalance, 1000);
+        assertEq(sellerBalance, reservePrice);
+    }
+
+    function test_endAuction_noHighestBid() public {
+        setUp_createAuction();
+        setUp_commitBid(bidder0, nonce0, 50);
+        setUp_commitBid(bidder1, nonce1, 50);
+
+        vm.warp(361);
+        vm.startPrank(bidder0);
+        auction.revealBid(1, 50, nonce0);
+
+        vm.startPrank(bidder1);
+        auction.revealBid(1, 50, nonce1);
+
+        vm.warp(481);
+        vm.expectEmit(true, true, true, true);
+        emit AssetTransferred(1, seller);
+        auction.endAuction(1);
+
+        uint256 bidderBalance = address(bidder0).balance;
+        uint256 sellerBalance = address(seller).balance;
+        assertEq(bidderBalance, 950);
+        assertEq(sellerBalance, 0);
+
+        vm.startPrank(bidder0);
+        auction.withdrawCollateral(1, 0);
+        assertEq(address(bidder0).balance, 1000);
+    }
+
+    function test_withdrawCollateral() public {
+        setUp_createAuction();
+        setUp_commitBid(bidder0, nonce0, bidValue0);
+        setUp_commitBid(bidder1, nonce1, bidValue1);
+
+        vm.warp(361);
+        vm.startPrank(bidder0);
+        auction.revealBid(1, bidValue0, nonce0);
+
+        vm.startPrank(bidder1);
+        auction.revealBid(1, bidValue1, nonce1);
+
+        vm.warp(481);
+        auction.endAuction(1);
+
+        vm.startPrank(bidder1);
+        auction.withdrawCollateral(1, 0);
+        uint256 bidderBalance = address(bidder1).balance;
+        ( ,uint96 bid_collateral) = auction.getBid(1, 0, bidder1);
+        assertEq(bid_collateral, 0);
+        assertEq(bidderBalance, 1000);
+    }
+
+    function test_withdrawCollateral_AuctionDoesNotExist() public {
+        vm.expectRevert("Auction does not exist for this item");
+        auction.withdrawCollateral(1, 0);
+    }
+
+    function test_withdrawCollateral_BidRevealPhaseNotOver() public {
+        setUp_createAuction();
+        vm.expectRevert("Bid reveal phase is not over yet");
+        auction.withdrawCollateral(1, 0);
+    }
+
+    function test_withdrawCollateral_WinningBidderCannotWithdraw() public {
+        setUp_createAuction();
+        setUp_commitBid(bidder0, nonce0, bidValue0);
+        setUp_commitBid(bidder1, nonce1, bidValue1);
+
+        vm.warp(361);
+        vm.startPrank(bidder0);
+        auction.revealBid(1, bidValue0, nonce0);
+
+        vm.startPrank(bidder1);
+        auction.revealBid(1, bidValue1, nonce1);
+
+        vm.warp(481);
+        auction.endAuction(1);
+
+        vm.startPrank(bidder0);
+        vm.expectRevert("Winning bidder cannot withdraw collateral");
+        auction.withdrawCollateral(1, 0);
+    }
+
+    function test_withdrawCollateral_BidderHasNotCommittedBid() public {
+        setUp_createAuction();
+        setUp_commitBid(bidder0, nonce0, bidValue0);
+
+        vm.warp(361);
+        vm.startPrank(bidder0);
+        auction.revealBid(1, bidValue0, nonce0);
+
+        vm.warp(481);
+        auction.endAuction(1);
+
+        vm.startPrank(bidder1);
+        vm.expectRevert("Bidder has not committed a bid");
+        auction.withdrawCollateral(1, 1);
+    }
+
+    function test_withdrawCollateral_CollateralAlreadyWithdrawn() public {
+        setUp_createAuction();
+        setUp_commitBid(bidder0, nonce0, bidValue0);
+        setUp_commitBid(bidder1, nonce1, bidValue1);
+
+        vm.warp(361);
+        vm.startPrank(bidder0);
+        auction.revealBid(1, bidValue0, nonce0);
+
+        vm.startPrank(bidder1);
+        auction.revealBid(1, bidValue1, nonce1);
+
+        vm.warp(481);
+        auction.endAuction(1);
+
+        vm.startPrank(bidder1);
+        auction.withdrawCollateral(1, 0);
+        vm.expectRevert("Collateral is already withdrawn");
+        auction.withdrawCollateral(1, 0);
+    }
+    
     event AssetTransferred(uint256 indexed assetId, address indexed newOwner);
 }
