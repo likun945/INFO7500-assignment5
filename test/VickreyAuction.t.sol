@@ -50,6 +50,7 @@ contract VickreyAuctionTest is Test {
         vm.warp(block.timestamp + 61);
         auction.commitBid{value: collateral}(1, commitment);
     }
+    
     function test_CreateAuction() public {
         uint256 itemId = 1;
         uint32 startTime = uint32(block.timestamp + 60);
