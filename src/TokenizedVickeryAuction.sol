@@ -91,6 +91,14 @@ contract TokenizedVickeryAuction {
         require(bidPeriod > 0, "Bid period must be greater than zero");
         require(revealPeriod > 0, "Reveal period must be greater than zero");
         require(reservePrice > 0, "Reserve price must be greater than zero");
+
+        IERC721 nft = IERC721(tokenContract);
+        require(
+            nft.ownerOf(tokenId) == msg.sender,
+            "Caller is not the token owner"
+        );
+        nft.transferFrom(msg.sender, address(this), tokenId);
+
         auctions[tokenContract][tokenId] = Auction({
             seller: msg.sender,
             startTime: startTime,
@@ -220,7 +228,6 @@ contract TokenizedVickeryAuction {
         address winningBidder = auction.highestBidder;
         uint96 secondHighestBid = auction.secondHighestBid;
 
-        // 清算拍卖
         if (winningBidder != address(0)) {
             if (secondHighestBid > 0) {
                 IERC20(auction.erc20Token).transfer(
@@ -286,9 +293,7 @@ contract TokenizedVickeryAuction {
         Bid storage bid = bids[tokenContract][tokenId][auctionIndex][bidder];
         require(bid.commitment != bytes20(0), "Bidder has not committed a bid");
         require(bid.collateral > 0, "Collateral is already withdrawn");
-
         IERC20(auction.erc20Token).transfer(bidder, bid.collateral);
-
         bid.collateral = 0;
     }
 

@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {TokenizedVickeryAuction} from "../src/TokenizedVickeryAuction.sol";
 import {MockERC20} from "../src/MockERC20.sol";
 import {MockERC721} from "../src/MockERC721.sol";
+import "openzeppelin-contracts/contracts/token/ERC721/IERC721.sol";
+import "openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import "forge-std/console.sol";
 
 contract TokenizedVickeryAuctionTest is Test {
@@ -12,9 +14,9 @@ contract TokenizedVickeryAuctionTest is Test {
     MockERC20 public token;
     MockERC721 public nft;
     address bidderAddress = vm.addr(1);
-    address mockERC721Address = vm.addr(2);
+    address seller = vm.addr(2);
     uint96 reservePrice = 100;
-    uint32 startTime = uint32(block.timestamp + 60);
+    uint32 startTime = 60;
     uint32 bidPeriod = 300;
     uint32 revealPeriod = 120;
     uint256 tokenId = 0;
@@ -30,19 +32,24 @@ contract TokenizedVickeryAuctionTest is Test {
         address(0x4E943da844cbe1503F13499ba8d5FD70f1eEF272);
     uint96 bidValue0 = 500;
     uint96 bidValue1 = 300;
+    uint96 initialBalance = 1000;
 
     function setUp() public {
         auction = new TokenizedVickeryAuction();
         token = new MockERC20("MockToken", "MTK");
         nft = new MockERC721("MockNFT", "MNFT");
-        token.mint(bidder0, 1000 ether);
-        token.mint(bidder1, 1000 ether);
-        nft.mint(address(mockERC721Address));
+        token.mint(bidder0, initialBalance * 1 ether);
+        token.mint(bidder1, initialBalance * 1 ether);
+        nft.mint(address(seller));
+        vm.startPrank(seller);
+        nft.approve(address(auction), tokenId);
+        vm.stopPrank();
         addressOfErc20Token = address(token);
         addressOfNFT = address(nft);
     }
 
     function setUp_createAuction() public {
+        vm.startPrank(seller);
         auction.createAuction(
             addressOfNFT,
             tokenId,
@@ -52,6 +59,7 @@ contract TokenizedVickeryAuctionTest is Test {
             revealPeriod,
             reservePrice
         );
+        vm.stopPrank();
     }
 
     function setUp_commitBid(
@@ -69,7 +77,26 @@ contract TokenizedVickeryAuctionTest is Test {
         auction.commitBid(address(nft), tokenId, commitment, collateral);
     }
 
+    function setUp_endAuction() public {
+        setUp_createAuction();
+        setUp_commitBid(bidder0, nonce0, bidValue0);
+        setUp_commitBid(bidder1, nonce1, bidValue1);
+
+        vm.warp(361);
+        vm.startPrank(bidder0);
+        auction.revealBid(address(nft), tokenId, bidValue0, nonce0);
+        vm.stopPrank();
+
+        vm.startPrank(bidder1);
+        auction.revealBid(address(nft), tokenId, bidValue1, nonce1);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + revealPeriod + 1);
+        auction.endAuction(address(nft), tokenId);
+    }
+
     function test_CreateAuction() public {
+        vm.startPrank(seller);
         auction.createAuction(
             addressOfNFT,
             tokenId,
@@ -79,9 +106,10 @@ contract TokenizedVickeryAuctionTest is Test {
             revealPeriod,
             reservePrice
         );
+        vm.stopPrank();
         TokenizedVickeryAuction.Auction memory createdAuction = auction
             .getAuction(addressOfNFT, tokenId);
-        assertEq(createdAuction.seller, address(this));
+        assertEq(createdAuction.seller, seller);
         assertEq(createdAuction.startTime, startTime);
         assertEq(createdAuction.endOfBiddingPeriod, startTime + bidPeriod);
         assertEq(
@@ -97,25 +125,9 @@ contract TokenizedVickeryAuctionTest is Test {
     }
 
     function test_CreateAuction_ErrorAuctionExists() public {
-        auction.createAuction(
-            addressOfNFT,
-            tokenId,
-            addressOfErc20Token,
-            startTime,
-            bidPeriod,
-            revealPeriod,
-            reservePrice
-        );
+        setUp_createAuction();
         vm.expectRevert("An active auction already exists for this item");
-        auction.createAuction(
-            addressOfNFT,
-            tokenId,
-            addressOfErc20Token,
-            startTime,
-            bidPeriod,
-            revealPeriod,
-            reservePrice
-        );
+        setUp_createAuction();
     }
 
     function test_CreateAuction_StartTimeInPast() public {
@@ -174,20 +186,25 @@ contract TokenizedVickeryAuctionTest is Test {
         );
     }
 
+    function test_CreateAuction_NotOwner() public {
+        vm.expectRevert("Caller is not the token owner");
+        auction.createAuction(
+            addressOfNFT,
+            tokenId,
+            addressOfErc20Token,
+            startTime,
+            bidPeriod,
+            revealPeriod,
+            reservePrice
+        );
+    }
+
     function test_CommitBid() public {
+        setUp_createAuction();
         token.mint(bidderAddress, 1000 ether);
 
         vm.startPrank(bidderAddress);
         token.approve(address(auction), 1000 ether);
-        auction.createAuction(
-            address(nft),
-            tokenId,
-            address(token),
-            uint32(block.timestamp + 60),
-            300,
-            120,
-            100
-        );
 
         bytes20 commitment = bytes20(
             keccak256(abi.encode(1, 1000, address(nft), tokenId, 1))
@@ -223,21 +240,13 @@ contract TokenizedVickeryAuctionTest is Test {
     }
 
     function test_CommitBid_BiddingNotStarted() public {
+        setUp_createAuction();
         bytes20 commitment = bytes20(
             0x1234567890123456789012345678901234567890
         );
         uint256 collateral = 200;
         address someAddress = address(
             0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496
-        );
-        auction.createAuction(
-            address(nft),
-            tokenId,
-            address(token),
-            uint32(block.timestamp + 60),
-            300,
-            120,
-            100
         );
         vm.expectRevert("Bidding has not started yet");
         vm.startPrank(someAddress);
@@ -245,40 +254,20 @@ contract TokenizedVickeryAuctionTest is Test {
     }
 
     function test_CommitBid_BiddingEnded() public {
+        setUp_createAuction();
         bytes20 commitment = bytes20(
             0x1234567890123456789012345678901234567890
         );
         uint256 collateral = 200;
-        auction.createAuction(
-            address(nft),
-            tokenId,
-            address(token),
-            uint32(block.timestamp + 60),
-            300,
-            120,
-            100
-        );
         vm.expectRevert("Bidding has ended");
         vm.warp(block.timestamp + 481);
         auction.commitBid(address(nft), tokenId, commitment, collateral);
     }
 
     function test_CommitBid_NoCollateralSent() public {
+        setUp_createAuction();
         bytes20 commitment = bytes20(
             0x1234567890123456789012345678901234567890
-        );
-        address someAddress = address(
-            0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496
-        );
-        vm.startPrank(someAddress);
-        auction.createAuction(
-            address(nft),
-            tokenId,
-            address(token),
-            uint32(block.timestamp + 60),
-            300,
-            120,
-            100
         );
         vm.warp(block.timestamp + 61);
         vm.expectRevert("Collateral must be sent with the bid");
@@ -361,7 +350,7 @@ contract TokenizedVickeryAuctionTest is Test {
         vm.startPrank(bidder0);
         auction.revealBid(address(nft), tokenId, bidValue0, nonce0);
     }
-    
+
     function test_endAuction_ErrorAuctionExists() public {
         vm.expectRevert("Auction does not exist for this item");
         auction.endAuction(addressOfNFT, tokenId);
@@ -373,4 +362,185 @@ contract TokenizedVickeryAuctionTest is Test {
         vm.expectRevert("Bid reveal phase is not over yet");
         auction.endAuction(addressOfNFT, tokenId);
     }
+
+    function test_EndAuction() public {
+        setUp_createAuction();
+        setUp_commitBid(bidder0, nonce0, bidValue0);
+        setUp_commitBid(bidder1, nonce1, bidValue1);
+
+        vm.warp(block.timestamp + bidPeriod - 1);
+        vm.startPrank(bidder0);
+        auction.revealBid(address(nft), tokenId, bidValue0, nonce0);
+        vm.stopPrank();
+
+        vm.startPrank(bidder1);
+        auction.revealBid(address(nft), tokenId, bidValue1, nonce1);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + revealPeriod + 1);
+
+        vm.expectEmit(true, true, true, true);
+        emit AuctionEnded(address(nft), tokenId, bidder0, bidValue1);
+        auction.endAuction(address(nft), tokenId);
+        assertEq(
+            IERC721(address(nft)).ownerOf(tokenId),
+            bidder0,
+            "NFT ownership not transferred correctly"
+        );
+        assertEq(
+            IERC20(address(token)).balanceOf(bidder0),
+            initialBalance * 1 ether - bidValue1,
+            "Incorrect refund to winning bidder"
+        );
+        assertEq(
+            IERC20(address(token)).balanceOf(seller),
+            bidValue1,
+            "Incorrect payment to seller"
+        );
+    }
+
+    function test_EndAuction_NoWinningBidder() public {
+        setUp_createAuction();
+
+        vm.warp(block.timestamp + startTime + bidPeriod + revealPeriod + 1);
+
+        vm.expectEmit(true, true, true, true);
+        emit AuctionEnded(address(nft), tokenId, address(0), 0);
+        auction.endAuction(address(nft), tokenId);
+
+        assertEq(
+            IERC721(address(nft)).ownerOf(tokenId),
+            seller,
+            "NFT should be returned to the seller"
+        );
+    }
+
+    function test_EndAuction_AllBidsBelowReserve() public {
+        setUp_createAuction();
+
+        uint96 lowBidValue0 = 50;
+        uint96 lowBidValue1 = 80;
+        setUp_commitBid(bidder0, nonce0, lowBidValue0);
+        setUp_commitBid(bidder1, nonce1, lowBidValue1);
+        vm.warp(361);
+        vm.startPrank(bidder0);
+        auction.revealBid(address(nft), tokenId, lowBidValue0, nonce0);
+        vm.stopPrank();
+
+        vm.startPrank(bidder1);
+        auction.revealBid(address(nft), tokenId, lowBidValue1, nonce1);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + startTime + bidPeriod + revealPeriod + 1);
+        vm.expectEmit(true, true, true, true);
+        emit AuctionEnded(address(nft), tokenId, address(0), 0);
+        auction.endAuction(address(nft), tokenId);
+
+        assertEq(
+            IERC721(address(nft)).ownerOf(tokenId),
+            seller,
+            "NFT should be returned to the seller"
+        );
+    }
+
+    function test_EndAuction_OneBidAboveReserve_NoSecondBid() public {
+        setUp_createAuction();
+        uint96 highBidValue = reservePrice + 50;
+        setUp_commitBid(bidder0, nonce0, highBidValue);
+
+        vm.warp(361);
+        vm.startPrank(bidder0);
+        auction.revealBid(address(nft), tokenId, highBidValue, nonce0);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + startTime + bidPeriod + revealPeriod + 1);
+
+        vm.expectEmit(true, true, true, true);
+        emit AuctionEnded(address(nft), tokenId, bidder0, reservePrice);
+        auction.endAuction(address(nft), tokenId);
+
+        assertEq(
+            IERC721(address(nft)).ownerOf(tokenId),
+            bidder0,
+            "NFT should be transferred to the highest bidder"
+        );
+        assertEq(
+            IERC20(address(token)).balanceOf(bidder0),
+            initialBalance * 1 ether - reservePrice,
+            "Incorrect payment by the highest bidder"
+        );
+        assertEq(
+            IERC20(address(token)).balanceOf(seller),
+            reservePrice,
+            "Seller should receive the reserve price"
+        );
+    }
+
+    function test_withdrawCollateral() public {
+        setUp_endAuction();
+        uint64 auctionIndex = auction.getAuction(address(nft), tokenId).index;
+        uint256 initialERC20Balance = IERC20(address(token)).balanceOf(bidder1);
+        vm.startPrank(bidder1);
+        auction.withdrawCollateral(address(nft), tokenId, auctionIndex);
+        uint256 finalERC20Balance = IERC20(address(token)).balanceOf(bidder1);
+        (, uint96 bid_collateral) = auction.getBid(
+            address(nft),
+            tokenId,
+            auctionIndex,
+            bidder1
+        );
+
+        assertEq(bid_collateral, 0, "Collateral should be withdrawn");
+        assertEq(
+            finalERC20Balance,
+            initialERC20Balance + bidValue1,
+            "Incorrect ERC20 balance after withdrawal"
+        );
+    }
+
+    function test_withdrawCollateral_AuctionDoesNotExist() public {
+        vm.expectRevert("Auction does not exist for this item");
+        auction.withdrawCollateral(address(nft), tokenId, 1);
+    }
+
+    function test_withdrawCollateral_BidRevealPhaseNotOver() public {
+        setUp_createAuction();
+        vm.expectRevert("Bid reveal phase is not over yet");
+        auction.withdrawCollateral(address(nft), tokenId, 1);
+    }
+
+    function test_withdrawCollateral_WinningBidderCannotWithdraw() public {
+        setUp_endAuction();
+        vm.startPrank(bidder0);
+        vm.expectRevert("Winning bidder cannot withdraw collateral");
+        auction.withdrawCollateral(address(nft), tokenId, 1);
+    }
+
+    function test_withdrawCollateral_BidderHasNotCommittedBid() public {
+        setUp_endAuction();
+        address bidder2 = vm.addr(3);
+        vm.startPrank(bidder2);
+        vm.expectRevert("Bidder has not committed a bid");
+        auction.withdrawCollateral(address(nft), tokenId, 1);
+    }
+
+    function test_withdrawCollateral_CollateralAlreadyWithdrawn() public {
+        setUp_endAuction();
+        vm.startPrank(bidder1);
+        auction.withdrawCollateral(address(nft), tokenId, 1);
+        vm.expectRevert("Collateral is already withdrawn");
+        auction.withdrawCollateral(address(nft), tokenId, 1);
+    }
+
+    function test_GetAuction_NotExist() public {
+        vm.expectRevert("Auction does not exist for this item");
+        auction.getAuction(addressOfNFT, tokenId + 1);
+    }
+
+    event AuctionEnded(
+        address indexed tokenContract,
+        uint256 indexed tokenId,
+        address indexed winner,
+        uint96 winningBid
+    );
 }
