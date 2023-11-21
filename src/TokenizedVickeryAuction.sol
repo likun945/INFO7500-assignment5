@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.13;
 
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "openzeppelin-contracts/token/ERC20/IERC20.sol";
+import "openzeppelin-contracts/token/ERC721/IERC721.sol";
 
 /// @title An on-chain, over-collateralization, sealed-bid, second-price auction
 contract TokenizedVickeryAuction {
@@ -154,7 +155,52 @@ contract TokenizedVickeryAuction {
         uint256 tokenId,
         uint96 bidValue,
         bytes32 nonce
-    ) external {}
+    ) external {
+        Auction storage auction = auctions[tokenContract][tokenId];
+        Bid storage bid = bids[tokenContract][tokenId][auction.index][
+            msg.sender
+        ];
+        require(auction.startTime > 0, "Auction does not exist for this item");
+        require(
+            block.timestamp >= auction.endOfBiddingPeriod,
+            "Reveal period has not started yet"
+        );
+        require(
+            block.timestamp < auction.endOfRevealPeriod,
+            "Reveal period has ended"
+        );
+        require(
+            bid.commitment != bytes20(0),
+            "No previous bid commitment found"
+        );
+        require(
+            bid.commitment ==
+                bytes20(
+                    keccak256(
+                        abi.encode(
+                            nonce,
+                            bidValue,
+                            tokenContract,
+                            tokenId,
+                            auction.index
+                        )
+                    )
+                ),
+            "Revealed bid does not match the commitment"
+        );
+        require(
+            bid.collateral >= bidValue,
+            "Collateral must be at least equal to the bid value"
+        );
+
+        if (bidValue > auction.highestBid) {
+            auction.secondHighestBid = auction.highestBid;
+            auction.highestBid = bidValue;
+            auction.highestBidder = msg.sender;
+        } else if (bidValue > auction.secondHighestBid) {
+            auction.secondHighestBid = bidValue;
+        }
+    }
 
     /// @notice Ends an active auction. Can only end an auction if the bid reveal
     ///         phase is over, or if all bids have been revealed. Disburses the auction
@@ -163,7 +209,55 @@ contract TokenizedVickeryAuction {
     ///         auction's reserve price, returns the asset to the seller.
     /// @param tokenContract The address of the ERC721 contract for the asset auctioned.
     /// @param tokenId The ERC721 token ID of the asset auctioned.
-    function endAuction(address tokenContract, uint256 tokenId) external {}
+    function endAuction(address tokenContract, uint256 tokenId) external {
+        Auction storage auction = auctions[tokenContract][tokenId];
+        require(auction.startTime > 0, "Auction does not exist for this item");
+        require(
+            block.timestamp >= auction.endOfRevealPeriod,
+            "Bid reveal phase is not over yet"
+        );
+
+        address winningBidder = auction.highestBidder;
+        uint96 secondHighestBid = auction.secondHighestBid;
+
+        // 清算拍卖
+        if (winningBidder != address(0)) {
+            if (secondHighestBid > 0) {
+                IERC20(auction.erc20Token).transfer(
+                    auction.seller,
+                    secondHighestBid
+                );
+            }
+            Bid storage winnerBid = bids[tokenContract][tokenId][auction.index][
+                winningBidder
+            ];
+            if (winnerBid.collateral > secondHighestBid) {
+                uint96 refund = winnerBid.collateral - secondHighestBid;
+                IERC20(auction.erc20Token).transfer(winningBidder, refund);
+            }
+            IERC721(tokenContract).safeTransferFrom(
+                address(this),
+                winningBidder,
+                tokenId
+            );
+
+            emit AuctionEnded(
+                tokenContract,
+                tokenId,
+                winningBidder,
+                secondHighestBid
+            );
+        } else {
+            IERC721(tokenContract).safeTransferFrom(
+                address(this),
+                auction.seller,
+                tokenId
+            );
+
+            emit AuctionEnded(tokenContract, tokenId, address(0), 0);
+        }
+        // delete auctions[tokenContract][tokenId];
+    }
 
     /// @notice Withdraws collateral. Bidder must have opened their bid commitment
     ///         and cannot be in the running to win the auction.
@@ -175,7 +269,28 @@ contract TokenizedVickeryAuction {
         address tokenContract,
         uint256 tokenId,
         uint64 auctionIndex
-    ) external {}
+    ) external {
+        Auction storage auction = auctions[tokenContract][tokenId];
+        require(auction.startTime > 0, "Auction does not exist for this item");
+        require(
+            block.timestamp >= auction.endOfRevealPeriod,
+            "Bid reveal phase is not over yet"
+        );
+
+        address bidder = msg.sender;
+        require(
+            bidder != auction.highestBidder,
+            "Winning bidder cannot withdraw collateral"
+        );
+
+        Bid storage bid = bids[tokenContract][tokenId][auctionIndex][bidder];
+        require(bid.commitment != bytes20(0), "Bidder has not committed a bid");
+        require(bid.collateral > 0, "Collateral is already withdrawn");
+
+        IERC20(auction.erc20Token).transfer(bidder, bid.collateral);
+
+        bid.collateral = 0;
+    }
 
     /// @notice Gets the parameters and state of an auction in storage.
     /// @param tokenContract The address of the ERC721 contract for the asset auctioned.
@@ -183,5 +298,26 @@ contract TokenizedVickeryAuction {
     function getAuction(
         address tokenContract,
         uint256 tokenId
-    ) external view returns (Auction memory auction) {}
+    ) external view returns (Auction memory auction) {
+        auction = auctions[tokenContract][tokenId];
+        require(auction.startTime > 0, "Auction does not exist for this item");
+        return auction;
+    }
+
+    function getBid(
+        address tokenContract,
+        uint256 tokenId,
+        uint64 auctionIndex,
+        address bidder
+    ) public view returns (bytes20 commitment, uint96 collateral) {
+        Bid storage bid = bids[tokenContract][tokenId][auctionIndex][bidder];
+        return (bid.commitment, bid.collateral);
+    }
+
+    event AuctionEnded(
+        address indexed tokenContract,
+        uint256 indexed tokenId,
+        address indexed winner,
+        uint96 winningBid
+    );
 }
