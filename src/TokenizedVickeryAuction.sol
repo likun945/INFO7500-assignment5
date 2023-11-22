@@ -77,7 +77,7 @@ contract TokenizedVickeryAuction {
         uint32 bidPeriod,
         uint32 revealPeriod,
         uint96 reservePrice
-    ) external {
+    ) public virtual{
         require(
             auctions[tokenContract][tokenId].startTime == 0 ||
                 block.timestamp >
