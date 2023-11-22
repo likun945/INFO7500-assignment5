@@ -58,6 +58,10 @@ contract TokenizedVickeryAuction {
     mapping(address => mapping(uint256 => mapping(uint64 => mapping(address => Bid)))) // ERC721 token contract // ERC721 token ID // Auction index // Bidder
         public bids;
 
+    function initialize() public virtual {
+        // empty now
+    }
+
     /// @notice Creates an auction for the given ERC721 asset with the given
     ///         auction parameters.
     /// @param tokenContract The address of the ERC721 contract for the asset
@@ -77,7 +81,7 @@ contract TokenizedVickeryAuction {
         uint32 bidPeriod,
         uint32 revealPeriod,
         uint96 reservePrice
-    ) public virtual{
+    ) public virtual {
         require(
             auctions[tokenContract][tokenId].startTime == 0 ||
                 block.timestamp >
