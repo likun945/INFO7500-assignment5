@@ -227,21 +227,16 @@ contract TokenizedVickeryAuction {
 
         address winningBidder = auction.highestBidder;
         uint96 secondHighestBid = auction.secondHighestBid;
-
         if (winningBidder != address(0)) {
-            if (secondHighestBid > 0) {
-                IERC20(auction.erc20Token).transfer(
-                    auction.seller,
-                    secondHighestBid
-                );
-            }
+            IERC20(auction.erc20Token).transfer(
+                auction.seller,
+                secondHighestBid
+            );
             Bid storage winnerBid = bids[tokenContract][tokenId][auction.index][
                 winningBidder
             ];
-            if (winnerBid.collateral > secondHighestBid) {
-                uint96 refund = winnerBid.collateral - secondHighestBid;
-                IERC20(auction.erc20Token).transfer(winningBidder, refund);
-            }
+            uint96 refund = winnerBid.collateral - secondHighestBid;
+            IERC20(auction.erc20Token).transfer(winningBidder, refund);
             IERC721(tokenContract).safeTransferFrom(
                 address(this),
                 winningBidder,
@@ -263,7 +258,6 @@ contract TokenizedVickeryAuction {
 
             emit AuctionEnded(tokenContract, tokenId, address(0), 0);
         }
-        // delete auctions[tokenContract][tokenId];
     }
 
     /// @notice Withdraws collateral. Bidder must have opened their bid commitment
@@ -306,6 +300,7 @@ contract TokenizedVickeryAuction {
     ) external view returns (Auction memory auction) {
         auction = auctions[tokenContract][tokenId];
         require(auction.startTime > 0, "Auction does not exist for this item");
+        // int co = 3;
         return auction;
     }
 

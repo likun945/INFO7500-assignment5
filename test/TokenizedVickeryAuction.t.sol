@@ -344,10 +344,17 @@ contract TokenizedVickeryAuctionTest is Test {
 
     function test_RevealBid_CollateralSufficient() public {
         setUp_createAuction();
-        setUp_commitBid(bidder0, nonce0, bidValue1);
-        vm.expectRevert("Revealed bid does not match the commitment");
-        vm.warp(block.timestamp + 361);
+        bytes20 commitment = bytes20(
+            keccak256(abi.encode(nonce0, 500, address(nft), tokenId, 1))
+        );
+        uint256 collateral = 200;
+        vm.warp(block.timestamp + 61);
         vm.startPrank(bidder0);
+        token.approve(address(auction), 1000 ether);
+        auction.commitBid(address(nft), tokenId, commitment, collateral);
+
+        vm.expectRevert("Collateral must be at least equal to the bid value");
+        vm.warp(block.timestamp + 361);
         auction.revealBid(address(nft), tokenId, bidValue0, nonce0);
     }
 
@@ -412,6 +419,44 @@ contract TokenizedVickeryAuctionTest is Test {
             IERC721(address(nft)).ownerOf(tokenId),
             seller,
             "NFT should be returned to the seller"
+        );
+    }
+
+    function test_EndAuction_HighestEqualSecondHighestBid() public {
+        setUp_createAuction();
+
+        setUp_commitBid(bidder0, nonce0, bidValue0);
+        setUp_commitBid(bidder1, nonce1, bidValue0);
+
+        vm.warp(361);
+        vm.startPrank(bidder0);
+        auction.revealBid(address(nft), tokenId, bidValue0, nonce0);
+        vm.stopPrank();
+
+        vm.startPrank(bidder1);
+        auction.revealBid(address(nft), tokenId, bidValue0, nonce1);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + startTime + bidPeriod + revealPeriod + 1);
+
+        auction.endAuction(address(nft), tokenId);
+
+        assertEq(
+            IERC20(address(token)).balanceOf(bidder0),
+            initialBalance * 1 ether - bidValue0,
+            "Winning bidder should not receive a refund"
+        );
+
+        assertEq(
+            IERC20(address(token)).balanceOf(seller),
+            bidValue0,
+            "Seller should receive the bid amount"
+        );
+
+        assertEq(
+            IERC721(address(nft)).ownerOf(tokenId),
+            bidder0,
+            "NFT should be transferred to the winning bidder"
         );
     }
 
