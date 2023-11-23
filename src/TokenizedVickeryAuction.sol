@@ -228,10 +228,10 @@ contract TokenizedVickeryAuction {
             block.timestamp >= auction.endOfRevealPeriod,
             "Bid reveal phase is not over yet"
         );
-
         address winningBidder = auction.highestBidder;
-        uint96 secondHighestBid = auction.secondHighestBid;
-        if (winningBidder != address(0)) {
+        bool hasWinner = winningBidder != address(0);
+        if (hasWinner) {
+            uint96 secondHighestBid = auction.secondHighestBid;
             IERC20(auction.erc20Token).transfer(
                 auction.seller,
                 secondHighestBid
@@ -304,7 +304,8 @@ contract TokenizedVickeryAuction {
     ) external view returns (Auction memory auction) {
         auction = auctions[tokenContract][tokenId];
         require(auction.startTime > 0, "Auction does not exist for this item");
-        // int co = 3;
+        string memory logMessage = "success";
+        console.logString(logMessage);
         return auction;
     }
 

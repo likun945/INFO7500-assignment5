@@ -375,7 +375,7 @@ contract TokenizedVickeryAuctionTest is Test {
         setUp_commitBid(bidder0, nonce0, bidValue0);
         setUp_commitBid(bidder1, nonce1, bidValue1);
 
-        vm.warp(block.timestamp + bidPeriod - 1);
+        vm.warp(block.timestamp + bidPeriod + 1);
         vm.startPrank(bidder0);
         auction.revealBid(address(nft), tokenId, bidValue0, nonce0);
         vm.stopPrank();
@@ -580,6 +580,11 @@ contract TokenizedVickeryAuctionTest is Test {
     function test_GetAuction_NotExist() public {
         vm.expectRevert("Auction does not exist for this item");
         auction.getAuction(addressOfNFT, tokenId + 1);
+    }
+
+    function test_InitializeFunction() public {
+        vm.prank(address(this)); 
+        auction.initialize();
     }
 
     event AuctionEnded(
