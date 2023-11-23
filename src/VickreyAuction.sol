@@ -213,6 +213,8 @@ contract VickreyAuction {
     ) external view returns (Auction memory auction) {
         auction = auctions[itemId];
         require(auction.startTime > 0, "Auction does not exist for this item");
+        string memory logMessage = "success";
+        console.logString(logMessage);
         return auction;
     }
 

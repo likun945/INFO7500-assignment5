@@ -8,8 +8,10 @@ import "forge-std/console.sol";
 contract VickreyAuctionTest is Test {
     VickreyAuction public auction;
     address constant seller = address(0);
-    address constant bidder0 = address(0x742d35Cc6634C0532925a3b844Bc454e4438f44e);
-    address constant bidder1 = address(0x4E943da844cbe1503F13499ba8d5FD70f1eEF272);
+    address constant bidder0 =
+        address(0x742d35Cc6634C0532925a3b844Bc454e4438f44e);
+    address constant bidder1 =
+        address(0x4E943da844cbe1503F13499ba8d5FD70f1eEF272);
     address constant contract_addr = 0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496;
     bytes32 nonce0 =
         0x1234567890123456789012345678901234567890123456789012345678901234;
@@ -18,6 +20,7 @@ contract VickreyAuctionTest is Test {
     uint96 bidValue0 = 500;
     uint96 bidValue1 = 300;
     uint96 reservePrice = 100;
+
     function setUp() public {
         auction = new VickreyAuction();
         vm.deal(bidder0, 1000);
@@ -50,7 +53,7 @@ contract VickreyAuctionTest is Test {
         vm.warp(block.timestamp + 61);
         auction.commitBid{value: collateral}(1, commitment);
     }
-    
+
     function test_CreateAuction() public {
         uint256 itemId = 1;
         uint32 startTime = uint32(block.timestamp + 60);
@@ -264,6 +267,12 @@ contract VickreyAuctionTest is Test {
         auction.commitBid(itemId, commitment);
     }
 
+    function test_RevealBid_AuctionDoesNotExist() public {
+        vm.startPrank(bidder0);
+        vm.expectRevert("Auction does not exist for this item");
+        auction.revealBid(1, 500, nonce0);
+    }
+
     function test_RevealBid_RevealPeriodNotStarted() public {
         uint256 itemId = 1;
         uint96 bidValue = 500;
@@ -368,12 +377,12 @@ contract VickreyAuctionTest is Test {
         assertEq(auction_info.highestBid, bidValue0);
         assertEq(auction_info.secondHighestBid, bidValue1);
     }
-    
+
     function test_endAuction_ErrorAuctionExists() public {
         vm.expectRevert("Auction does not exist for this item");
         auction.endAuction(1);
     }
-    
+
     function test_endAuction_revealPeriodNotOver() public {
         setUp_createAuction();
         vm.warp(479);
@@ -469,7 +478,7 @@ contract VickreyAuctionTest is Test {
         vm.startPrank(bidder1);
         auction.withdrawCollateral(1, 0);
         uint256 bidderBalance = address(bidder1).balance;
-        ( ,uint96 bid_collateral) = auction.getBid(1, 0, bidder1);
+        (, uint96 bid_collateral) = auction.getBid(1, 0, bidder1);
         assertEq(bid_collateral, 0);
         assertEq(bidderBalance, 1000);
     }
@@ -541,6 +550,11 @@ contract VickreyAuctionTest is Test {
         vm.expectRevert("Collateral is already withdrawn");
         auction.withdrawCollateral(1, 0);
     }
-    
+
+    function test_GetAuction_NotExist() public {
+        vm.expectRevert("Auction does not exist for this item");
+        auction.getAuction(1);
+    }
+
     event AssetTransferred(uint256 indexed assetId, address indexed newOwner);
 }
