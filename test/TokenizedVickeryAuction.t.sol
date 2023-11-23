@@ -41,8 +41,10 @@ contract TokenizedVickeryAuctionTest is Test {
         token.mint(bidder0, initialBalance * 1 ether);
         token.mint(bidder1, initialBalance * 1 ether);
         nft.mint(address(seller));
+        nft.mint(address(seller));
         vm.startPrank(seller);
         nft.approve(address(auction), tokenId);
+        nft.approve(address(auction), tokenId+1);
         vm.stopPrank();
         addressOfErc20Token = address(token);
         addressOfNFT = address(nft);
@@ -403,6 +405,22 @@ contract TokenizedVickeryAuctionTest is Test {
             IERC20(address(token)).balanceOf(seller),
             bidValue1,
             "Incorrect payment to seller"
+        );
+
+        vm.warp(1);
+        tokenId = 1;
+        setUp_createAuction();
+
+        vm.warp(block.timestamp + startTime + bidPeriod + revealPeriod + 1);
+
+        vm.expectEmit(true, true, true, true);
+        emit AuctionEnded(address(nft), tokenId, address(0), 0);
+        auction.endAuction(address(nft), tokenId);
+
+        assertEq(
+            IERC721(address(nft)).ownerOf(tokenId),
+            seller,
+            "NFT should be returned to the seller"
         );
     }
 
